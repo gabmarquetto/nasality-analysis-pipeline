@@ -1,0 +1,224 @@
+# nasality-analysis-pipeline.praat
+#
+# Script developed by Gabriel Marquetto
+# (Institute of Language Studies – University of Campinas, Brazil).
+#
+# This script implements a pipeline for visually assessing whether a vowel
+# has been nasalized, based on spectrogram cues. The methodology follows
+# Seara (2000) and is discussed in Barbosa & Madureira (2015). The script
+# presents visual cues by comparing the target vowel with a homorganic
+# oral counterpart. If the formants of the target vowel deviate significantly
+# from the baseline, it can be considered nasalized.
+#
+# Word and chunk tiers are required as interval tiers. The stress tier is optional,
+# allowing you to specify the context you want to analyze.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 3 of the License.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+
+form File acquisition
+    word inputDirectory audios/
+    word baselineFile pug_baseline.wav
+    word outputFile nasalData.csv
+    word audioFileExtension .wav
+    word desiredChunkLabel a
+    word desiredStressLabel 1
+    word desiredNextLabel n|m|ɲ
+    integer wordTier 1
+    integer chunkTier 2
+    integer stressTier 3
+endform
+
+# Grab all filenames for further iteration
+Create Strings as file list: "files", inputDirectory$ + "*.wav"
+selectObject: "Strings files"
+totalFiles =  Get number of strings
+for i from 1 to totalFiles
+    fileName$ = Get string: i
+    id$ = fileName$ - ".wav"
+    Set string: i, id$
+endfor
+
+# Create output file
+writeFileLine: outputFile$, "AUDIO,TIME,WORD,PHONEME,STRESS,PREVIOUS,NEXT,DURATION,IS.NASAL"
+writeInfoLine: "Kicking off..."
+
+# Create baseline object
+Read from file: baselineFile$
+To Spectrogram: 0.025, 5000, 0.002, 20, "Gaussian"
+To Spectrum (slice): 0
+baselineIndex = selected("Spectrum")
+
+# Go through input files
+for i from 1 to totalFiles
+
+    # Grab files
+    selectObject: "Strings files"
+    id$ = Get string: i
+    Read from file: inputDirectory$ + id$ + audioFileExtension$
+    Read from file: inputDirectory$ + id$ + ".TextGrid"
+    appendInfoLine: "Now judging the file " + id$ 
+
+    # Iterate through chunk tier
+    totalChunks = Get number of intervals: chunkTier
+    for chunkIndex from 1 to totalChunks
+
+        # Grab context 
+        selectObject: "TextGrid " + id$
+        chunkLabel$ = Get label of interval: chunkTier, chunkIndex
+        chunkStart = Get start time of interval: chunkTier, chunkIndex
+        chunkEnd = Get end time of interval: chunkTier, chunkIndex
+        chunkDuration = chunkEnd - chunkStart
+
+        wordIndex = Get interval at time: wordTier, chunkStart
+        word$ = Get label of interval: wordTier, wordIndex
+        wordStart = Get start time of interval: wordTier, wordIndex
+        wordEnd = Get end time of interval: wordTier, wordIndex
+
+        if stressTier > 0
+            stressInterval = Get interval at time: stressTier, chunkStart
+            stress$ = Get label of interval: stressTier, stressInterval
+        else
+            stress$ = ""
+        endif
+
+        if chunkIndex != 1
+            previousLabel$ = Get label of interval: chunkTier, chunkIndex - 1
+        else
+            previousLabel$ = ""
+        endif
+
+        if chunkIndex != totalChunks
+            nextLabel$ = Get label of interval: chunkTier, chunkIndex + 1
+        else
+            nextLabel$ = ""
+        endif
+
+        if index_regex(chunkLabel$, desiredChunkLabel$)
+            ...and index_regex(stress$, desiredStressLabel$)
+            ...and index_regex(nextLabel$, desiredNextLabel$)
+            ...and not index_regex(nextLabel$, "w|j")
+            ...and chunkDuration > 0.06
+
+            demo 12
+
+            # Draw baseline spectrum and cepstral
+            selectObject: baselineIndex
+            demo Colour: {0, 0, 0}
+            demo Select outer viewport: 0, 50, 0, 35
+            demo Draw: 0.0, 5000, 0, 0, "yes"
+            Cepstral smoothing: 500
+            demo Draw: 0.0, 5000, 0, 0, "no"
+
+            # Draw word waveform
+            selectObject: "Sound " + id$
+            Extract part: wordStart, wordEnd, "rectangular", 1, "no"
+            Extract one channel: 1
+
+            demo Select outer viewport: 0, 100, 70, 100
+            demo Colour: {0, 0, 0}
+            demo Draw: 0, 0, 0, 0, "no", "curve"
+
+            Remove
+            selectObject: "Sound " + id$ + "_part"
+            Remove
+
+            # Draw word textgrid
+            selectObject: "TextGrid " + id$
+            demo Select outer viewport: 0, 100, 70, 100
+            demo Colour: {255, 0, 0}
+            demo Draw: wordStart, wordEnd, "yes", "no", "no"
+
+            # Draw chunk spectrum
+            selectObject: "Sound " + id$
+            Extract part: chunkStart, chunkEnd, "rectangular", 1, "yes"
+            To Spectrogram: 0.025, 5000, 0.002, 20, "Gaussian"
+            To Spectrum (slice): chunkDuration
+            demo Select outer viewport: 0, 50, 35, 70
+            demo Colour: {255, 0, 0}
+            demo Draw: 0.0, 5000, 0, 0, "yes"
+
+            # Draw chunk cepstral
+            Cepstral smoothing: 500
+            demo Draw: 0.0, 5000, 0, 0, "no"
+
+            Remove
+            selectObject: "Sound " + id$ + "_part"
+            Remove
+            selectObject: "Spectrogram " + id$ + "_part"
+            Remove
+            selectObject: "Spectrum " + id$ + "_part"
+            Remove
+
+            # Draw word spectrogram
+            selectObject: "Sound " + id$
+            Extract part: wordStart, wordEnd, "rectangular", 1, "yes"
+            To Spectrogram: 0.005, 5000, 0.002, 20, "Gaussian"
+            demo Select outer viewport: 50, 100, 0, 70
+            demo Colour: {0, 0, 0}
+            demo Paint: wordStart, wordEnd, 0.0, 5000, 100, "yes", 50.0, 6.0, 0.0, "yes"
+            demo Text top: "yes", word$
+
+            Remove
+            selectObject: "Sound " + id$ + "_part"
+            Remove
+ 
+            # Draw word textgrid
+            selectObject: "TextGrid " + id$
+            demo Select outer viewport: 50, 100, 0, 70
+            demo Colour: {255, 0, 0}
+            demo 14
+            demo Draw: wordStart, wordEnd, "yes", "no", "no"
+
+            beginPause: "Acoustic Assessment"
+            comment: "Assess whether the target vowel exhibits nasalization."
+            clicked = endPause: "nasalized", "oral", "uncertain", 3
+
+            if clicked == 1
+                appendInfoLine: "Assessed as nasalized"
+                isNasal$ = "nasalized"
+            elif clicked == 2
+                appendInfoLine: "Assessed as oral"
+                isNasal$ = "oral"
+            else
+                appendInfoLine: "Marked as uncertain"
+                isNasal$ = "NA"
+            endif
+
+            demo Erase all
+        
+            # Save to output file
+            appendFileLine: outputFile$,
+                ...id$, ",",
+                ...chunkStart, ",",
+                ...word$, ",",
+                ...chunkLabel$, ",",
+                ...stress$, ",",
+                ...previousLabel$, ",",
+                ...nextLabel$, ",",
+                ...chunkDuration, ",",
+                ...isNasal$
+
+        endif
+
+    endfor
+
+    Erase all
+
+    appendInfoLine: "Successfully saved data for file " + id$ + "."
+
+    # Remove created objects
+    selectObject: "TextGrid " + id$
+    Remove
+    selectObject: "Sound " + id$
+    Remove
+
+endfor
+
+appendInfoLine: "All done!"
